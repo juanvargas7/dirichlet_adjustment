@@ -1,0 +1,772 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(viridis)
+library("scatterplot3d") # load
+library(tidyverse)
+library(betareg)
+library(lme4)
+library(pheatmap)
+library(ggthemes)
+library(VGAM)
+library(betareg)
+library(ComplexHeatmap)
+library(circlize)
+```
+
+```{r}
+meta_colors = list(
+    "new_class" = c(
+        "M" = "#9E0142",
+        "T + M" = "#F46D43",
+        "T + B" = "#FEE08B",
+        "T + F" = "#E6F598",
+        "F" = "#ABDDA4",
+        "E + F + M" = "#66C2A5"
+    )
+
+)
+```
+
+
+```{r}
+pca_RA <- readRDS("d_pca_category_all_2021-08-29.rds")
+
+dt = readRDS('C:\\Users\\Juan\\Documents\\single_cell\\mat_baseline_disease_duration_per_sample.rds')
+
+dt
+
+dt = 
+  dt %>% 
+  mutate_at(vars(-("disease_duration")), function(x){ return(x*10^-2)}) %>%
+  mutate(sample = rownames(dt))
+
+dt
+
+dt = 
+dt %>% rename(B_Cell = `B cell`,
+              T_cell = `T cell`)
+
+dt$NK = ifelse(dt$NK == 0, 0.000000000001,dt$NK)
+dt$B_Cell = ifelse(dt$B_Cell == 0, 0.000000000001,dt$B_Cell)
+
+classes=
+  pca_RA %>%
+  dplyr::select(donor,new_class)
+```
+
+
+```{r}
+pl = function(a,b,c){
+  out =
+   b %>%
+  ggplot() +
+  geom_point(aes_string(x = 'disease_duration', y =a)) +
+    ggtitle(c)
+             
+  return(out)
+}
+
+for (i in c('B_Cell','Endothelial','Fibroblast','Myeloid','NK','T_cell')){
+ 
+print(pl(i,dt,i))
+}
+```
+
+## Using Vector Generalized Linear Model 
+
+In the analysiss we will be using vglm a couple of times. Here is information on the model.
+
+The Vector Generalized Linear Model (VGLM) is an extension of the Generalized Linear Model (GLM) that allows for multiple responses to be modeled simultaneously. In the VGLM, the response variable is a vector instead of a scalar, and the relationship between the response vector and the predictors is modeled through a link function and a set of linear predictor functions. The VGLM is useful in situations where multiple response variables are correlated and cannot be modeled independently.
+
+The VGLM is defined by the following components:
+
+Response: A vector of response variables y = (y1, y2, ..., yp), where p is the number of response variables.
+
+Linear predictor: A set of linear predictor functions that describe the relationship between the response vector and the predictor variables. The linear predictor for each response variable is given by:
+
+ηi = xiβi, for i = 1, 2, ..., p
+
+where ηi is the linear predictor for the i-th response variable, xi is a row vector of predictor variables for the i-th response variable, and βi is a vector of regression coefficients for the i-th response variable.
+
+Link function: A set of p link functions that relate the expected value of the response variables to the linear predictor. The link function for each response variable is given by:
+g(μi) = ηi, for i = 1, 2, ..., p
+
+where g(.) is a monotonic differentiable function, and μi is the expected value of the i-th response variable.
+
+Variance function: A set of p variance functions that describe the relationship between the variance of the response variables and the expected values of the response variables. The variance function for each response variable is given by:
+Var(yi) = ϕiV(μi), for i = 1, 2, ..., p
+
+where ϕi is a scale parameter that affects the magnitude of the variance of the i-th response variable, and V(.) is a differentiable function that relates the variance of the i-th response variable to the expected value of the i-th response variable.
+
+The VGLM has several advantages over the GLM, including:
+
+Correlated responses: The VGLM allows for the modeling of correlated response variables, which cannot be modeled independently in a GLM.
+
+Flexible variance structure: The VGLM allows for a flexible variance structure, which can be different for each response variable.
+
+Efficiency: The VGLM can be more efficient than fitting separate GLMs to each response variable, especially when the response variables are highly correlated.
+
+However, the VGLM also has some disadvantages:
+
+Complexity: The VGLM is more complex than the GLM, and requires more computational resources to fit.
+
+Interpretation: The interpretation of the regression coefficients can be more difficult in a VGLM, especially when there are multiple response variables.
+
+Assumptions: The assumptions of the VGLM can be more restrictive than those of the GLM, especially when modeling correlated responses.
+
+Overall, the VGLM is a useful tool for modeling correlated response variables, but requires careful consideration of the assumptions and interpretation of the results.
+
+
+## Using Dirichlet
+
+This model is when response is summed to 1 
+
+
+Dirichlet regression is a type of regression model used to analyze proportions or compositional data. It is based on the Dirichlet distribution, which is a multivariate distribution that is defined on the simplex, a geometric space that represents a set of proportions that sum to one.
+
+The assumptions of Dirichlet regression include:
+
+  * The response variables are proportions or compositional data, and each observation consists of a set of proportions that sum to one.
+  * The response variables follow a Dirichlet distribution, which is a continuous probability distribution that is defined on the simplex.
+  * The relationship between the response variables and the predictors is modeled using a log link function, which maps the proportions to the real line. This means that the model is based on the log-ratio transformation of the proportions, rather than the raw proportions themselves.
+The residuals of the model are normally distributed, and the variance of the residuals is constant across the range of the predictors.
+  * The predictors are not collinear, and there is no multicollinearity among the predictors.
+It is also important to note that Dirichlet regression can be sensitive to the choice of prior distribution for the parameters of the model. Different choices of prior can lead to different results, and it is important to carefully consider the choice of prior in order to ensure that the results are robust and reliable.
+
+
+```{r}
+
+# load the DirichletReg package
+library(DirichletReg)
+
+
+# fit a Dirichlet regression model 
+
+dt %>% dplyr::select_if(is.numeric) %>%  cor() %>% pheatmap()
+
+#fit <- vglm(cbind(Endothelial,Fibroblast,Myeloid) ~ disease_duration, dirichlet, data = dt)
+fit <- vglm(cbind(B_Cell,Endothelial,T_cell,Fibroblast,Myeloid,NK) ~ disease_duration, dirichlet, data = dt)
+
+# view the summary of the model
+summary(fit)
+
+plot(fit)
+
+#residuals(fit)
+output = residuals(fit) %>% as.data.frame()
+
+colnames(output) = c('B cell','Endothelial','T cell','Fibroblast','Myeloid','NK')
+
+output
+saveRDS(output,'dirichlet_weighted_proportions_celltypes.rds')
+```
+
+## PCA
+
+```{}
+library(devtools)
+install_github("vqv/ggbiplot")
+```
+
+
+```{r}
+library(viridis)
+pc <- prcomp(output %>% t(),
+             center = TRUE,
+            scale. = TRUE)
+pc$rotation %>% as.data.frame()
+summary(pc)
+
+pca = pc$rotation %>% as.data.frame()
+
+pca$donor = rownames(pca)
+pca = 
+  pca %>% 
+    left_join(classes)
+
+adj_plot = 
+pca %>%
+  ggplot() +
+    geom_point(aes(x = -PC1, y =-PC2, fill = new_class),size = 4, shape = 21, stroke = 0.2)+
+scale_fill_manual(values = meta_colors$new_class, name = "") + 
+theme_clean(base_size = 18) + ggtitle('Dirichlet')
+
+scatterplot3d(pca$PC1,pca$PC3,pca$PC2, angle =60)
+adj_plot
+
+pca_dirichlet = pca %>% select_if(is.numeric)
+```
+
+First 2 PCs are totalling 65% of variance
+
+
+```{r}
+pc <- prcomp(output ,
+             center = TRUE,
+            scale. = TRUE)
+
+library(ggbiplot)
+g <- ggbiplot(pc,
+              obs.scale = 1,
+              var.scale = 1,
+              ellipse = TRUE,
+              circle = TRUE,
+              ellipse.prob = 0.68)
+g <- g + scale_color_discrete(name = '')
+g <- g + theme(legend.direction = 'horizontal',
+               legend.position = 'top')
+
+
+print(g)
+
+
+pc <- prcomp(output %>% t(),
+             center = TRUE,
+            scale. = TRUE)
+
+library(ggbiplot)
+g <- ggbiplot(pc,
+              obs.scale = 1,
+              var.scale = 1,
+              ellipse = TRUE,
+              circle = TRUE,
+              ellipse.prob = 0.68)
+g <- g + scale_color_discrete(name = '')
+g <- g + theme(legend.direction = 'horizontal',
+               legend.position = 'top')
+
+
+print(g)
+```
+
+
+## Original PCA results (Fan's)
+
+
+```{r}
+options(repr.plot.width = 4.5, repr.plot.height = 5)
+
+p1 = 
+ggplot(pca_RA, aes(PC1, -PC2, fill = new_class)) +
+geom_point(size = 4, shape = 21, stroke = 0.2) +
+scale_fill_manual(values = meta_colors$new_class, name = "") + 
+theme_clean(base_size = 18) + ggtitle('Fan Original')
+p1
+
+pca_fan = pca_RA %>% select(c(PC1,PC2,PC3,PC4,PC5,PC6))
+```
+
+
+
+## GLM for adjusting values
+
+Re loading the data 
+
+```{r}
+dt = readRDS('C:\\Users\\Juan\\Documents\\single_cell\\mat_baseline_disease_duration_per_sample.rds')
+
+dt
+
+dt = 
+  dt %>% 
+  mutate(sample = rownames(dt))
+
+dt
+
+dt = 
+dt %>% dplyr::rename(B_Cell = `B cell`,
+              T_cell = `T cell`)
+
+dt$NK = ifelse(dt$NK == 0, 0.000000000001,dt$NK)
+dt$B_Cell = ifelse(dt$B_Cell == 0, 0.000000000001,dt$B_Cell)
+
+classes=
+  pca_RA %>%
+  dplyr::select(donor,new_class)
+```
+
+
+Will be using multiple models
+
+```{r}
+bcell_mod <- glm(B_Cell ~ disease_duration, data = dt)
+#summary(bcell_mod)
+bcell_res = residuals(bcell_mod)
+
+tcell_mod  = glm(T_cell ~ disease_duration, data = dt)
+#summary(tcell_mod)
+tcell_res= residuals(tcell_mod)
+
+myeloid_mod = glm(Myeloid ~ disease_duration, data = dt)
+#summary(myeloid_mod)
+myeloid_res = residuals(myeloid_mod)
+
+nk_mod = glm(NK ~ disease_duration, data = dt)
+#summary(nk_mod)
+nk_res = residuals(nk_mod)
+
+endo_mod = glm(Endothelial ~ disease_duration, data = dt)
+#summary(endo_mod)
+endo_res = residuals(endo_mod)
+
+fibro_mod =  glm(Fibroblast ~ disease_duration, data = dt)
+#summary(fibro_mod)
+fibro_res = residuals(fibro_mod)
+
+
+out2 = 
+  data.frame(B_cell = bcell_res,
+             T_cell = tcell_res,
+             Myeloid = myeloid_res,
+             NK = nk_res,
+             Endothelial = endo_res,
+             Fibroblast = fibro_res)
+rownames(out2) = rownames(dt)
+out2
+
+saveRDS(out2,'glm_weighted_proportions_celltypes.rds')
+```
+
+
+```{r}
+
+pc <- prcomp(out2 %>% t(),
+             center = TRUE,
+            scale. = TRUE)
+pc$rotation %>% as.data.frame()
+summary(pc)
+
+pca = pc$rotation %>% as.data.frame()
+
+pca$donor = rownames(pca)
+pca = 
+  pca %>% 
+    left_join(classes)
+p2 =
+pca %>%
+  ggplot() +
+    geom_point(aes(x = - PC1, y =PC2, fill = new_class),size = 4, shape = 21, stroke = 0.2)+
+scale_fill_manual(values = meta_colors$new_class, name = "") + 
+theme_clean(base_size = 18) + ggtitle('GLM')
+
+p2 
+pca_glm = pca %>% select_if(is.numeric)
+```
+
+First 2 PCs are sum of 77.8%
+
+
+## Adding covariates to the models above 
+
+We are adding covariates because the events of proportion 
+
+```{r}
+
+
+bcell_mod <- glm(B_Cell ~ disease_duration + NK + Myeloid + Endothelial + T_cell  + Fibroblast, data = dt)
+#summary(bcell_mod)
+bcell_res = residuals(bcell_mod)
+
+tcell_mod  = glm(T_cell ~ disease_duration +  NK + Myeloid + Endothelial + B_Cell + Fibroblast, data = dt)
+#summary(tcell_mod)
+tcell_res= residuals(tcell_mod)
+
+myeloid_mod = glm(Myeloid ~ disease_duration + Endothelial + B_Cell + Fibroblast + NK + T_cell, data = dt)
+#summary(myeloid_mod)
+myeloid_res = residuals(myeloid_mod)
+
+nk_mod = glm(NK ~ disease_duration + Endothelial + B_Cell + Fibroblast + Myeloid + T_cell, data = dt)
+#summary(nk_mod)
+nk_res = residuals(nk_mod)
+
+endo_mod = glm(Endothelial ~ disease_duration + B_Cell + Fibroblast + Myeloid + T_cell + NK, data = dt)
+#summary(endo_mod)
+endo_res = residuals(endo_mod)
+
+fibro_mod =  glm(Fibroblast ~ disease_duration + Myeloid + T_cell + NK + B_Cell + Endothelial, data = dt)
+#summary(fibro_mod)
+fibro_res = residuals(fibro_mod)
+
+
+out3 = 
+  data.frame(B_cell = bcell_res,
+             T_cell = tcell_res,
+             Myeloid = myeloid_res,
+             NK = nk_res,
+             Endothelial = endo_res,
+             Fibroblast = fibro_res)
+rownames(out2) = rownames(dt)
+out3
+```
+
+
+```{r}
+pc <- prcomp(out3 %>% t(),
+             center = TRUE,
+            scale. = TRUE)
+pc$rotation %>% as.data.frame()
+summary(pc)
+
+pca = pc$rotation %>% as.data.frame()
+
+pca$donor = rownames(pca)
+pca = 
+  pca %>% 
+    left_join(classes)
+pca %>%
+  ggplot() +
+    geom_point(aes(x = PC1, y =PC2, fill = new_class),size = 4, shape = 21, stroke = 0.2)+
+scale_fill_manual(values = meta_colors$new_class, name = "") + 
+theme_clean(base_size = 18) 
+```
+It can be seen that adding the covariates will not make the pca more clearly
+
+
+## Beta distribution
+
+Beta regression
+
+
+```{r}
+pca_RA <- readRDS("d_pca_category_all_2021-08-29.rds")
+
+dt = readRDS('C:\\Users\\Juan\\Documents\\single_cell\\mat_baseline_disease_duration_per_sample.rds')
+
+dt
+
+dt = 
+  dt %>% 
+  mutate_at(vars(-("disease_duration")), function(x){ return(x*10^-2)}) %>%
+  mutate(sample = rownames(dt))
+
+dt
+
+dt = 
+dt %>% dplyr::rename(B_Cell = `B cell`,
+              T_cell = `T cell`)
+
+dt$NK = ifelse(dt$NK == 0, 0.000000000001,dt$NK)
+dt$B_Cell = ifelse(dt$B_Cell == 0, 0.000000000001,dt$B_Cell)
+
+classes=
+  pca_RA %>%
+  dplyr::select(donor,new_class)
+```
+
+
+```{r}
+sub = dt %>%
+  pivot_longer(c(B_Cell,Endothelial,Fibroblast,Myeloid,NK,T_cell), values_to ='value')
+beta = betareg(value ~ disease_duration + name , data = sub)
+summary(beta)
+val = data.frame(res = residuals(beta), cell = sub$name,sample = sub$sample)
+t = 
+  val %>% 
+  pivot_wider(names_from = cell, values_from= res) 
+
+rownames(t) =t$sample
+
+t = t  %>% as.data.frame()
+
+rownames(t) =t$sample
+
+t = t %>% dplyr::select(-sample)
+```
+
+The parameter phi in beta regression represents the precision of the distribution. It is related to the dispersion parameter in generalized linear models, but it has a different interpretation because of the bounded nature of the response variable. A high value of phi indicates low dispersion, which means that the beta distribution is more concentrated around the mean. A low value of phi indicates high dispersion, which means that the beta distribution is more spread out.
+
+In this case, the estimate of phi is 6.3842, with a standard error of 0.4592. The z-value is 13.9, which indicates that the estimate is significantly different from zero. The p-value, which is less than 2e-16 (very small), also indicates that the estimate is statistically significant.
+
+Without further context, it is difficult to interpret what "low" and "high" values of phi would be. However, based on this output, we can say that the estimate of phi is relatively large (6.3842) and statistically significant.
+
+
+
+```{r}
+pc <- prcomp(t %>% t(),
+             center = TRUE,
+            scale. = TRUE)
+pc$rotation %>% as.data.frame()
+summary(pc)
+
+pca = pc$rotation %>% as.data.frame()
+
+pca$donor = rownames(pca)
+pca = 
+  pca %>% 
+    left_join(classes)
+
+beta_pca=
+pca %>%
+  ggplot() +
+    geom_point(aes(x = -PC1, y = -PC2, fill = new_class),size = 4, shape = 21, stroke = 0.2)+
+scale_fill_manual(values = meta_colors$new_class, name = "") + 
+theme_clean(base_size = 18)  + ggtitle('Beta distribution')
+betapc = pca
+beta_pca
+```
+
+
+
+## Linear Mixed Model by phenotype group
+
+```{r}
+dt =
+dt %>% 
+    left_join(classes, by = c('sample'= 'donor'))
+sub = dt %>%
+  pivot_longer(c(B_Cell,Endothelial,Fibroblast,Myeloid,NK,T_cell), values_to ='value')
+```
+
+
+```{r}
+mod = 
+  lmer(value ~ disease_duration + (1| new_class) + name, data = sub)
+val = data.frame(res = residuals(mod), cell = sub$name,sample = sub$sample)
+t = 
+  val %>% 
+  pivot_wider(names_from = cell, values_from= res) 
+
+rownames(t) =t$sample
+
+t = t  %>% as.data.frame()
+
+rownames(t) =t$sample
+
+t = t %>% dplyr::select(-sample)
+
+```
+```{r}
+pc <- prcomp(t %>% t(),
+             center = TRUE,
+            scale. = TRUE)
+pc$rotation %>% as.data.frame()
+summary(pc)
+
+pca = pc$rotation %>% as.data.frame()
+
+pca$donor = rownames(pca)
+pca = 
+  pca %>% 
+    left_join(classes)
+
+lmer_pca=
+pca %>%
+  ggplot() +
+    geom_point(aes(x = -PC1, y = -PC2, fill = new_class),size = 4, shape = 21, stroke = 0.2)+
+scale_fill_manual(values = meta_colors$new_class, name = "") + 
+theme_clean(base_size = 18)  + ggtitle('LME distribution')
+lmerpc = pca
+lmer_pca
+```
+
+
+
+## Gamma distributiuon with vglm
+
+```{}
+# Fit the multivariate gamma regression model
+fit <- vglm(cbind(B_Cell,Endothelial,T_cell,Fibroblast,Myeloid,NK) ~ disease_duration, gammaff, trace = TRUE, data = dt)
+
+```
+
+
+
+## All the PCA plots
+
+```{r}
+p1
+p2
+adj_plot
+beta_pca
+lmer_pca
+```
+
+
+
+
+## PCA Comparison for models 
+
+
+
+### Checking data
+
+```{r}
+pca_fan %>% as.matrix() %>% hist()
+pca_glm %>% as.matrix() %>% hist() 
+pca_dirichlet%>% as.matrix() %>% hist() 
+```
+
+Seem to distribute normal, a simple t-test could be tried and then move on to more complex things.
+
+```{r}
+t.test(pca_fan - pca_dirichlet)
+t.test(pca_fan - pca_glm)
+t.test(pca_dirichlet - pca_glm)
+
+
+
+t.test(pca_fan[,1:2] - pca_dirichlet[,1:2])
+t.test(pca_fan[,1:2] - pca_glm[,1:2])
+t.test(pca_dirichlet[,1:2] - pca_glm[,1:2])
+```
+
+## MANOVA
+
+Original Pca vs dirichlet
+
+
+```{r}
+scores1_f <-cbind( pca_fan$PC1 , pca_fan$PC2  )
+
+# combine the scores and the grouping variable
+scores_f <- scores1_f %>% as.data.frame() %>% mutate(groups = 'fan')
+
+
+# dirichlet
+scores1_d <- cbind(pca_dirichlet$PC1,  pca_dirichlet$PC2)  
+
+
+# combine the scores and the grouping variable
+scores_d <- scores1_d %>% as.data.frame() %>% mutate(groups = 'dirichlet')
+
+
+temp = rbind(scores_f,scores_d) %>% 
+  as.data.frame() %>% 
+  dplyr::rename(PC1 = V1, PC2 = V2)
+
+# perform MANOVA
+
+
+manova_result <- manova(cbind(temp$PC1,temp$PC2) ~ temp$groups)
+
+# print the results
+summary(manova_result)
+```
+
+Original vs GLM
+
+```{r}
+scores1_f <-cbind( pca_fan$PC1 , pca_fan$PC2  )
+
+# combine the scores and the grouping variable
+scores_f <- scores1_f %>% as.data.frame() %>% mutate(groups = 'fan')
+
+
+# dirichlet
+scores1_d <- cbind(pca_glm$PC1,  pca_glm$PC2)  
+
+
+# combine the scores and the grouping variable
+scores_d <- scores1_d %>% as.data.frame() %>% mutate(groups = 'glm')
+
+
+temp = rbind(scores_f,scores_d) %>% 
+  as.data.frame() %>% 
+  dplyr::rename(PC1 = V1, PC2 = V2)
+
+# perform MANOVA
+
+
+manova_result <- manova(cbind(temp$PC1,temp$PC2) ~ temp$groups)
+
+# print the results
+summary(manova_result)
+```
+
+
+## Distance based methods
+
+### Hierarchical Clustering
+
+euclidean
+
+fan original pca
+
+
+For this dendogram I used the Labels
+
+```{r}
+
+dist_fan = dist(pca_fan, method = 'euclidean')
+hc <- hclust(dist_fan, method = "complete")
+hc$labels = pca_RA$new_class
+plot(hc, cex = 0.6, hang = -1)
+sub_grp <- cutree(hc, k = 6)
+table(sub_grp)
+temp= data.frame(original = sub_grp)
+
+```
+
+
+
+```{r}
+dist_dir = dist(pca_dirichlet, method = 'euclidean')
+hc <- hclust(dist_dir, method = "complete")
+hc$labels = pca_RA$new_class
+plot(hc, cex = 0.6, hang = -1)
+sub_grp <- cutree(hc, k = 6)
+
+table(sub_grp)
+temp =
+  temp %>% mutate(dir = sub_grp)
+
+rownames(temp) = rownames(t)
+temp$sample = rownames(temp); temp = temp %>% dplyr::rename(dirichlet = dir)
+
+saveRDS(temp,'clustering_dirichlet_original.rds')
+```
+
+## Dirichlet vs original Confusion matrix
+
+```{r}
+col_fun = colorRamp2(c(0,2,4,6,8),scico(5))
+
+out1 = table(temp) %>% as.matrix()
+Heatmap(out1,
+        name = 'Count',
+       # cluster_rows = F,
+       # cluster_columns = F,
+        row_title = 'Original',
+        column_title = 'Dirichlet',
+    column_names_side = "top", 
+    row_names_side = 'left', 
+    column_names_rot = 0,col= col_fun,
+    cell_fun = function(j, i, x, y, width, height, fill) {
+        
+      if(i == j){
+                grid.rect(x = x, y = y, width = width, height = height, gp = gpar(col = "green", fill = NA))
+      }
+      grid.text( out1[i, j], x, y, gp = gpar(fontsize = 10))
+})
+
+
+
+out1
+```
+
+
+
+```{r}
+dist_glm = dist(pca_glm, method = 'euclidean')
+hc <- hclust(dist_glm, method = "complete")
+hc$labels = pca_RA$new_class
+plot(hc, cex = 0.6, hang = -1)
+sub_grp <- cutree(hc, k = 6)
+table(sub_grp)
+```
+
+```{r}
+dist_beta= dist(betapc, method = 'euclidean')
+hc <- hclust(dist_beta, method = "complete")
+hc$labels = pca_RA$new_class
+plot(hc, cex = 0.6, hang = -1)
+sub_grp <- cutree(hc, k = 6)
+table(sub_grp)
+
+
+```
